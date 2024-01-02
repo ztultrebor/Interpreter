@@ -18,18 +18,6 @@
 ; it represents two quantities to be multiplied
 
 
-; a BSL-Expr is one of
-;     - Number
-;     - (make-add [BSL-Expr] [BSL-Expr])
-;     - (make-multiply [BSL-Expr] [BSL-Expr])
-#;
-(define (fn-on-bslexpr be)
-  (match be
-    [(? number?) be]
-    [(add x y) (+ (fn-on-bslexpr x) (fn-on-bslexpr y))]
-    [(multiply x y) (* (fn-on-bslexpr x) (fn-on-bslexpr y))]))
-
-
 (define-struct nd [x y])
 ; an And is a [Number Number]
 ; it represents the logical "and" of two booleans
@@ -45,19 +33,24 @@
 ; it represents the logical "not" of a booleans
 
 
-; a BSL-Bool-Expr is one of
+; a BSL-Expr is one of
+;     - Number
 ;     - Boolean
+;     - (make-add [BSL-Expr] [BSL-Expr])
+;     - (make-multiply [BSL-Expr] [BSL-Expr])
 ;     - (make-and [BSL-Bool-Expr] [BSL-Bool-Expr])
 ;     - (make-or [BSL-Bool-Expr] [BSL-Bool-Expr])
 ;     - (make-not [BSL-Bool-Expr])
 #;
-(define (fn-on-bboolex bbe)
-  (match bbe
+(define (fn-on-bslexpr be)
+  (match be
+    [(? number?) be]
     [(? boolean?) bbe]
-    [(and x y) (and (fn-on-bboolex x) (fn-on-bboolex y))]
-    [(or x y) (or (fn-on-bboolex x) (fn-on-bboolex y))]
-    [(not x) (not (fn-on-bboolex x))]))
-
+    [(add x y) (+ (fn-on-bslexpr x) (fn-on-bslexpr y))]
+    [(multiply x y) (* (fn-on-bslexpr x) (fn-on-bslexpr y))]
+    [(nd x y) (and (fn-on-bslexpr x) (fn-on-bslexpr y))]
+    [(r x y) (or (fn-on-bslexpr x) (fn-on-bslexpr y))]
+    [(nt x) (not (fn-on-bslexpr x))]))
 
 
 ; ===============================
@@ -73,8 +66,8 @@
 
 
 (define (eval-bool-expr bbe)
-  ; BSL-Bool-Expr -> Boolean
-  ; converts a BSL boolean expression into a boolean value
+  ; BSL-Expr -> Boolean
+  ; converts a BSL expression into a boolean value
   (match bbe
     [(? boolean?) bbe]
     [(nd x y) (and (eval-bool-expr x) (eval-bool-expr y))]
@@ -82,6 +75,21 @@
     [(nt x) (not (eval-bool-expr x))]))
 
 
+(define (parse sexpr)
+  ; S-Expr -> BSL-Expr
+  ; takes an S-expression and converts it into a BSL-expression
+  (match sexpr
+    [(? number?) sexpr]
+    [(? boolean?) sexpr]
+    [(? string?) (error "no strings allowed")]
+    [(? symbol?) (error "no symbols allowed")]
+    [(list '+ x y) (make-add (parse x) (parse y))]
+    [(list '* x y) (make-multiply (parse x) (parse y))]
+    [(list 'and x y) (make-nd (parse x) (parse y))]
+    [(list 'or x y) (make-r (parse x) (parse y))]
+    [(list 'not x) (make-nt (parse x))]))
+
+  
 ; ============================
 ; checks
 (define test1 (make-add 7 3))
@@ -91,7 +99,7 @@
 (define bool2 (make-r #f #t))
 (define bool3 (make-nt #f))
 (define buant (make-r (make-nt (make-nd #t #t))
-                       (make-nt (make-nd #f #t))))
+                      (make-nt (make-nd #f #t))))
 
 (check-expect (eval-expression test1) 10)
 (check-expect (eval-expression test2) 250)
@@ -100,3 +108,11 @@
 (check-expect (eval-bool-expr bool2) #t)
 (check-expect (eval-bool-expr bool3) #t)
 (check-expect (eval-bool-expr buant) #t)
+(check-expect (parse '(+ 7 3)) test1)
+(check-expect (parse '(* 10 25)) test2)
+(check-expect (parse '(* (+ 7 3) (+ 33 -8))) quant)
+(check-expect (parse '(and #f #t)) bool1)
+(check-expect (parse '(or #f #t)) bool2)
+(check-expect (parse '(not #f)) bool3)
+(check-expect (parse '(or (not (and #t #t)) (not (and #f #t)))) buant)
+(check-error (parse '(+ x 4)) "no symbols allowed")
