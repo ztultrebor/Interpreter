@@ -11,11 +11,17 @@
 (define-struct add [x y])
 ; an Add is a [Number Number]
 ; it represents two quantities to be added
+#;
+(define (fn-on-add z)
+  (+ (add-x z)) (add-y z))
 
 
 (define-struct multiply [x y])
 ; a Multiply is a [Number Number]
 ; it represents two quantities to be multiplied
+#;
+(define (fn-on-multiply z)
+  (+ (multiply-x z)) (mulyiply-y z))
 
 
 ; a BSL-Expr is one of
@@ -30,36 +36,6 @@
     [(multiply x y) (* (fn-on-bslexpr x) (fn-on-bslexpr y))]))
 
 
-(define-struct nd [x y])
-; an And is a [Number Number]
-; it represents the logical "and" of two booleans
-
-
-(define-struct r [x y])
-; an Or is a [Number Number]
-; it represents the logical "or" of two booleans
-
-
-(define-struct nt [x])
-; a Not is a [Number]
-; it represents the logical "not" of a booleans
-
-
-; a BSL-Bool-Expr is one of
-;     - Boolean
-;     - (make-and [BSL-Bool-Expr] [BSL-Bool-Expr])
-;     - (make-or [BSL-Bool-Expr] [BSL-Bool-Expr])
-;     - (make-not [BSL-Bool-Expr])
-#;
-(define (fn-on-bboolex bbe)
-  (match bbe
-    [(? boolean?) bbe]
-    [(and x y) (and (fn-on-bboolex x) (fn-on-bboolex y))]
-    [(or x y) (or (fn-on-bboolex x) (fn-on-bboolex y))]
-    [(not x) (not (fn-on-bboolex x))]))
-
-
-
 ; ===============================
 ; functions
 
@@ -72,31 +48,12 @@
     [(multiply x y) (* (eval-expression x) (eval-expression y))]))
 
 
-(define (eval-bool-expr bbe)
-  ; BSL-Bool-Expr -> Boolean
-  ; converts a BSL boolean expression into a boolean value
-  (match bbe
-    [(? boolean?) bbe]
-    [(nd x y) (and (eval-bool-expr x) (eval-bool-expr y))]
-    [(r x y) (or (eval-bool-expr x) (eval-bool-expr y))]
-    [(nt x) (not (eval-bool-expr x))]))
-
-
 ; ============================
 ; checks
 (define test1 (make-add 7 3))
 (define test2 (make-multiply 10 25))
 (define quant (make-multiply (make-add 7 3) (make-add 33 -8)))
-(define bool1 (make-nd #f #t))
-(define bool2 (make-r #f #t))
-(define bool3 (make-nt #f))
-(define buant (make-r (make-nt (make-nd #t #t))
-                       (make-nt (make-nd #f #t))))
 
 (check-expect (eval-expression test1) 10)
 (check-expect (eval-expression test2) 250)
 (check-expect (eval-expression quant) 250)
-(check-expect (eval-bool-expr bool1) #f)
-(check-expect (eval-bool-expr bool2) #t)
-(check-expect (eval-bool-expr bool3) #t)
-(check-expect (eval-bool-expr buant) #t)
