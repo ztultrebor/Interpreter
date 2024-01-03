@@ -36,6 +36,7 @@
 ; a BSL-Expr is one of
 ;     - Number
 ;     - Boolean
+;     - Symbol
 ;     - (make-add [BSL-Expr] [BSL-Expr])
 ;     - (make-multiply [BSL-Expr] [BSL-Expr])
 ;     - (make-and [BSL-Bool-Expr] [BSL-Bool-Expr])
@@ -45,7 +46,8 @@
 (define (fn-on-bslexpr be)
   (match be
     [(? number?) be]
-    [(? boolean?) bbe]
+    [(? boolean?) be]
+    [(? symbol?) be]
     [(add x y) (+ (fn-on-bslexpr x) (fn-on-bslexpr y))]
     [(multiply x y) (* (fn-on-bslexpr x) (fn-on-bslexpr y))]
     [(nd x y) (and (fn-on-bslexpr x) (fn-on-bslexpr y))]
@@ -55,6 +57,22 @@
 
 ; ===============================
 ; functions
+
+
+(define (parse sexpr)
+  ; S-Expr -> BSL-Expr
+  ; takes an S-expression and converts it into a BSL-expression
+  (match sexpr
+    [(? number?) sexpr]
+    [(? boolean?) sexpr]
+    [(? symbol?) sexpr]
+    [(? string?) (error "no strings allowed")]
+    [(list '+ x y) (make-add (parse x) (parse y))]
+    [(list '* x y) (make-multiply (parse x) (parse y))]
+    [(list 'and x y) (make-nd (parse x) (parse y))]
+    [(list 'or x y) (make-r (parse x) (parse y))]
+    [(list 'not x) (make-nt (parse x))]))
+
 
 (define (eval-expression be)
   ; BSL-Expr -> Number
@@ -75,21 +93,33 @@
     [(nt x) (not (eval-bool-expr x))]))
 
 
-(define (parse sexpr)
-  ; S-Expr -> BSL-Expr
-  ; takes an S-expression and converts it into a BSL-expression
-  (match sexpr
-    [(? number?) sexpr]
-    [(? boolean?) sexpr]
-    [(? string?) (error "no strings allowed")]
-    [(? symbol?) (error "no symbols allowed")]
-    [(list '+ x y) (make-add (parse x) (parse y))]
-    [(list '* x y) (make-multiply (parse x) (parse y))]
-    [(list 'and x y) (make-nd (parse x) (parse y))]
-    [(list 'or x y) (make-r (parse x) (parse y))]
-    [(list 'not x) (make-nt (parse x))]))
+(define (subst be sym val)
+  ; BSL-Expr Symbol Number -> BSL-Expr
+  ; replace all occurrences of symbol with value
+  (match be
+    [(? number?) be]
+    [(? symbol?) (if (symbol=? sym be) val be)]
+    [(add x y) (make-add (subst x sym val) (subst y sym val))]
+    [(multiply x y) (make-multiply (subst x sym val) (subst y sym val))]))
 
-  
+
+(define (numeric? be)
+  ; BSL-Expr -> Boolean
+  ; determine if the given expression is fully numeric,
+  ; i.e., if it is ready for evaluation
+    (match be
+    [(? number?) #t]
+    [(? symbol?) #f]
+    [(add x y) (and (numeric? x) (numeric? y))]
+    [(multiply x y) (and (numeric? x) (numeric? y))]))
+
+
+(define (eval-variable be)
+  ; BSL-Expr -> Number or BSL-Expr
+  ; evaluates an expression if no dangling variables, else returns the original
+  (if (numeric? be) (eval-expression be) be))
+
+
 ; ============================
 ; checks
 (define test1 (make-add 7 3))
@@ -100,6 +130,7 @@
 (define bool3 (make-nt #f))
 (define buant (make-r (make-nt (make-nd #t #t))
                       (make-nt (make-nd #f #t))))
+(define symbi (make-multiply (make-add 'x 3) (make-add 33 'y)))
 
 (check-expect (eval-expression test1) 10)
 (check-expect (eval-expression test2) 250)
@@ -115,4 +146,9 @@
 (check-expect (parse '(or #f #t)) bool2)
 (check-expect (parse '(not #f)) bool3)
 (check-expect (parse '(or (not (and #t #t)) (not (and #f #t)))) buant)
-(check-error (parse '(+ x 4)) "no symbols allowed")
+(check-expect (parse '(+ x 4)) (make-add 'x 4))
+(check-expect (numeric? symbi) #f)
+(check-expect (numeric? (subst symbi 'x 7)) #f)
+(check-expect (numeric? (subst (subst symbi 'x 7) 'y -8)) #t)
+(check-expect (eval-variable (subst
+                              (eval-variable (subst symbi 'x 7)) 'y -8)) 250)
