@@ -55,6 +55,13 @@
     [(nt x) (not (fn-on-bslexpr x))]))
 
 
+; an Association is a (list Symbol Number)
+; ir represents a variables along with an associated numeric value
+#;
+(define (fn-on-association assoc)
+  (... (fn-on-symbol (firstassoc)) ... (fn-on-number (second assoc))))
+
+
 ; ===============================
 ; functions
 
@@ -107,17 +114,48 @@
   ; BSL-Expr -> Boolean
   ; determine if the given expression is fully numeric,
   ; i.e., if it is ready for evaluation
-    (match be
+  (match be
     [(? number?) #t]
     [(? symbol?) #f]
     [(add x y) (and (numeric? x) (numeric? y))]
     [(multiply x y) (and (numeric? x) (numeric? y))]))
 
 
-(define (eval-variable be)
-  ; BSL-Expr -> Number or BSL-Expr
-  ; evaluates an expression if no dangling variables, else returns the original
-  (if (numeric? be) (eval-expression be) be))
+(define (eval-variable* be lassoc)
+  ; BSL-Expr [ListOf Association] -> [Maybe Number]
+  ; traverse the list of associations, making substitutions in
+  ; the BST-Expression for each variable one by one
+  (cond
+    [(empty? lassoc)
+     (if (numeric? be) (eval-expression be)
+         (error "there's undefined variables in here"))]
+    [else (eval-variable*
+           (subst be (first (first lassoc)) (second (first lassoc)))
+           (rest lassoc))]))
+
+
+(define (eval-var-lookup be lassoc)
+  ; BSL-Expr [ListOf Association] -> [Maybe Number]
+  ; traverse the BST-Expression, making substitutions from the
+  ; list of associations each time a variable is encountered
+  (local (
+          (define (assq be lassoc)
+            (match be
+              [(? number?) be]
+              [(? symbol?)
+               (local (
+                       (define (in? assoc)
+                         ; Association -> Boolean
+                         (symbol=? (first assoc) be)))
+                 ; - IN -
+                 (if (ormap in? lassoc) (second (first (filter in? lassoc)))
+                     (error "there's undefined variables in here")))]
+              [(add x y)
+               (make-add (eval-var-lookup x lassoc) (eval-var-lookup y lassoc))]
+              [(multiply x y) (make-multiply (eval-var-lookup x lassoc)
+                                             (eval-var-lookup y lassoc))])))
+    ; - IN -
+    (eval-expression (assq be lassoc))))
 
 
 ; ============================
@@ -150,5 +188,9 @@
 (check-expect (numeric? symbi) #f)
 (check-expect (numeric? (subst symbi 'x 7)) #f)
 (check-expect (numeric? (subst (subst symbi 'x 7) 'y -8)) #t)
-(check-expect (eval-variable (subst
-                              (eval-variable (subst symbi 'x 7)) 'y -8)) 250)
+(check-expect (eval-variable* symbi '((x 7) (y -8))) 250)
+(check-error (eval-variable* symbi '((x 7)))
+             "there's undefined variables in here")
+(check-expect (eval-var-lookup symbi '((x 7) (y -8))) 250)
+(check-error (eval-var-lookup symbi '((x 7)))
+             "there's undefined variables in here")
