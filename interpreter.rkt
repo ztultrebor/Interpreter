@@ -112,9 +112,9 @@
     [(list 'not x) (make-nt (parse x))]
     [(list (? symbol?) expr) (make-func-app (parse (first sexpr))
                                             (parse expr))]
-    [(list (? symbol?) (? symbol?) expr) (make-func-defn (parse (first sexpr))
-                                                         (parse (second sexpr))
-                                                         (parse expr))]))
+    [(list (list (? symbol?) (? symbol?)) expr)
+     (make-func-defn (parse (first (first sexpr)))
+                     (parse (second (first sexpr))) (parse expr))]))
 
 
 (define (eval-expression be)
@@ -252,12 +252,12 @@
 (check-expect (eval-var-lookup symbi '((x 7) (y -8))) 250)
 (check-error (eval-var-lookup symbi '((x 7)))
              "there's undefined variables in here")
-(check-expect (parse '(k x (+ x 4))) (make-func-defn 'k 'x (make-add 'x 4)))
-(check-expect (eval-definition '(k 3) '(k x x)) 3)
-(check-expect (eval-definition '(k 3) '(k x (+ x 4))) 7)
-(check-expect (eval-definition '(* 1 (k 3)) '(k x (+ x 4))) 7)
-(check-expect (eval-definition '(* 5 (k 3)) '(k x (+ x 4))) 35)
-(check-expect (eval-definition '(* 5 (k (+ 1 2))) '(k x (+ x 4))) 35)
-(check-error (eval-definition '(* 5 (k (+ 1 2))) '(p x (+ x 4)))
+(check-expect (parse '((k x) (+ x 4))) (make-func-defn 'k 'x (make-add 'x 4)))
+(check-expect (eval-definition '(k 3) '((k x) x)) 3)
+(check-expect (eval-definition '(k 3) '((k x) (+ x 4))) 7)
+(check-expect (eval-definition '(* 1 (k 3)) '((k x) (+ x 4))) 7)
+(check-expect (eval-definition '(* 5 (k 3)) '((k x) (+ x 4))) 35)
+(check-expect (eval-definition '(* 5 (k (+ 1 2))) '((k x) (+ x 4))) 35)
+(check-error (eval-definition '(* 5 (k (+ 1 2))) '((p x) (+ x 4)))
              "need a proper definition for this function")
-(check-expect (eval-definition '(* 5 (k (+ 1 2))) '(k x (+ y 4))) 35) ; ?????
+(check-expect (eval-definition '(* 5 (k (+ 1 2))) '((k x) (+ y 4))) 35) ; ?????
