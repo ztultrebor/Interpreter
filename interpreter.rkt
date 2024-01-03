@@ -33,13 +33,23 @@
 ; it represents the logical "not" of a booleans
 
 
-(define-struct function [name arg])
-; a Function is a [BSL-Expr Number]
-; it represents a one-parameter function of otherwise arbitrary complexity
+(define-struct func-defn [name param body])
+; a FunctionDefinition is a [Symbol Symbol BSL-Expr]
+; it defines a function and what it does to its parameters
 #;
-(define (fn-on-function f)
-  (... (fn-on-bslexpr (function-name f))
-       ... (fn-on-number (function-arg f))))
+(define (fn-on-func-defn f)
+  (... (fn-on-symbol (func-defn-name f))
+       ... (fn-on-symbol (func-defn-param f))
+       ... (fn-on-bslexpr (func-defn-body f))))
+
+
+(define-struct func-app [name arg])
+; a FunctionApplication is a [Symbol Number]
+; it represents the application of a fubction, embedded in an expression
+#;
+(define (fn-on-func-app f)
+  (... (fn-on-symbol (func-app-name f))
+       ... (fn-on-number (func-app-arg f))))
 
 
 ; a BSL-Expr is one of
@@ -100,8 +110,11 @@
     [(list 'and x y) (make-nd (parse x) (parse y))]
     [(list 'or x y) (make-r (parse x) (parse y))]
     [(list 'not x) (make-nt (parse x))]
-    [(list (? symbol?) (? number?)) (make-function (parse (first sexpr))
+    [(list (? symbol?) (? number?)) (make-func-app (parse (first sexpr))
                                                    (parse (second sexpr)))]
+    [(list (? symbol?) (? symbol?) expr) (make-func-defn (parse (first sexpr))
+                                                        (parse (second sexpr))
+                                                        (parse expr))]
     [(list name body) (list name (parse body))]))
 
 
@@ -187,31 +200,20 @@
   (local (
           (define ex (parse expr))
           (define fn (parse func))
+          (define (eval be repl)
+            ; BSL-Expr BSL-Expr ->  Number
+            ; evaluates the BSL-expression, returning a number
+            (match be
+              [(? number?) be]
+              [(? symbol?) repl]
+              [(add x y) (+ (eval x repl) (eval y repl))]
+              [(multiply x y) (* (eval x repl) (eval y repl))]
+              [(? func-app?)
+               (eval (eval (func-defn-body repl) (func-app-arg be)) repl)])))
+    ; - IN -
+    (eval ex fn)))
 
-          (define (eval ex fn)
-            (local (
-                    (define (subst be val)
-                      ; BSL-Expr Number -> BSL-Expr
-                      ; replace all occurrences of the one
-                      ; and only symbol with value
-                      (match be
-                        [(? number?) be]
-                        [(? symbol?) val]
-                        [(add x y) (make-add (subst x val) (subst y val))]
-                        [(multiply x y)
-                         (make-multiply (subst x val)(subst y val))])))
-              ; BSL-Expr BSL-Expr ->  Number
-              ; evaluates the BSL-expression, returning a number
-              (match ex
-                [(? number?) ex]
-                [(add x y) (+ (eval x fn) (eval y fn))]
-                [(multiply x y) (* (eval x fn) (eval y fn))]
-                [(? function?)
-                 (eval (subst (second fn) (function-arg ex)) fn)]))))
-          ; - IN -
-          (eval ex fn)))
 
-  
 
 ; ============================
 ; checks
@@ -249,8 +251,7 @@
 (check-error (eval-var-lookup symbi '((x 7)))
              "there's undefined variables in here")
 (check-expect (parse '(k (+ x 4))) (list 'k (make-add 'x 4)))
-(check-expect (eval-definition '(k 4) '(k x)) 4)
-(check-expect (eval-definition '(k 4) '(k (+ x 1))) 5)
-(check-expect (eval-definition '(k 4) '(k (+ x 4))) 8)
-(check-expect (eval-definition '(* 1 (k 4)) '(k (+ x 4))) 8)
-(check-expect (eval-definition '(* 5 (k 4)) '(k (+ x 4))) 40)
+(check-expect (eval-definition '(k 3) '(k x x)) 3)
+(check-expect (eval-definition '(k 3) '(k x (+ x 4))) 7)
+(check-expect (eval-definition '(* 1 (k 3)) '(k x (+ x 4))) 7)
+(check-expect (eval-definition '(* 5 (k 3)) '(k x (+ x 4))) 35)
