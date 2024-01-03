@@ -111,10 +111,10 @@
     [(list 'or x y) (make-r (parse x) (parse y))]
     [(list 'not x) (make-nt (parse x))]
     [(list (? symbol?) expr) (make-func-app (parse (first sexpr))
-                                                   (parse expr))]
+                                            (parse expr))]
     [(list (? symbol?) (? symbol?) expr) (make-func-defn (parse (first sexpr))
-                                                        (parse (second sexpr))
-                                                        (parse expr))]))
+                                                         (parse (second sexpr))
+                                                         (parse expr))]))
 
 
 (define (eval-expression be)
@@ -207,8 +207,11 @@
               [(? symbol?) repl]
               [(add x y) (+ (eval x repl) (eval y repl))]
               [(multiply x y) (* (eval x repl) (eval y repl))]
-              [(? func-app?) (eval (func-defn-body repl)
-                                   (eval (func-app-arg be) repl))])))
+              [(? func-app?)
+               (if (symbol=? (func-defn-name repl) (func-app-name be))
+                   (eval (func-defn-body repl)
+                         (eval (func-app-arg be) repl))
+                   (error "need a proper definition for this function"))])))
     ; - IN -
     (eval ex fn)))
 
@@ -255,3 +258,6 @@
 (check-expect (eval-definition '(* 1 (k 3)) '(k x (+ x 4))) 7)
 (check-expect (eval-definition '(* 5 (k 3)) '(k x (+ x 4))) 35)
 (check-expect (eval-definition '(* 5 (k (+ 1 2))) '(k x (+ x 4))) 35)
+(check-error (eval-definition '(* 5 (k (+ 1 2))) '(p x (+ x 4)))
+             "need a proper definition for this function")
+(check-expect (eval-definition '(* 5 (k (+ 1 2))) '(k x (+ y 4))) 35) ; ?????
