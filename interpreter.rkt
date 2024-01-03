@@ -44,12 +44,12 @@
 
 
 (define-struct func-app [name arg])
-; a FunctionApplication is a [Symbol Number]
-; it represents the application of a fubction, embedded in an expression
+; a FunctionApplication is a [Symbol BSL-Expr]
+; it represents the application of a function, embedded in an expression
 #;
 (define (fn-on-func-app f)
   (... (fn-on-symbol (func-app-name f))
-       ... (fn-on-number (func-app-arg f))))
+       ... (fn-on-bslexpr (func-app-arg f))))
 
 
 ; a BSL-Expr is one of
@@ -110,12 +110,11 @@
     [(list 'and x y) (make-nd (parse x) (parse y))]
     [(list 'or x y) (make-r (parse x) (parse y))]
     [(list 'not x) (make-nt (parse x))]
-    [(list (? symbol?) (? number?)) (make-func-app (parse (first sexpr))
-                                                   (parse (second sexpr)))]
+    [(list (? symbol?) expr) (make-func-app (parse (first sexpr))
+                                                   (parse expr))]
     [(list (? symbol?) (? symbol?) expr) (make-func-defn (parse (first sexpr))
                                                         (parse (second sexpr))
-                                                        (parse expr))]
-    [(list name body) (list name (parse body))]))
+                                                        (parse expr))]))
 
 
 (define (eval-expression be)
@@ -194,9 +193,9 @@
 
 
 (define (eval-definition expr func)
-  ; S-Expr S-Expe -> [Maybe Number]
-  ; takes an expression of or containing a function along with
-  ; the expression of that function itself and returns the result
+  ; S-Expr S-Expr -> [Maybe Number]
+  ; takes an umparsed expression of or containing a function along with
+  ; the unparsed expression of that function itself and returns the result
   (local (
           (define ex (parse expr))
           (define fn (parse func))
@@ -208,8 +207,8 @@
               [(? symbol?) repl]
               [(add x y) (+ (eval x repl) (eval y repl))]
               [(multiply x y) (* (eval x repl) (eval y repl))]
-              [(? func-app?)
-               (eval (eval (func-defn-body repl) (func-app-arg be)) repl)])))
+              [(? func-app?) (eval (func-defn-body repl)
+                                   (eval (func-app-arg be) repl))])))
     ; - IN -
     (eval ex fn)))
 
@@ -250,8 +249,9 @@
 (check-expect (eval-var-lookup symbi '((x 7) (y -8))) 250)
 (check-error (eval-var-lookup symbi '((x 7)))
              "there's undefined variables in here")
-(check-expect (parse '(k (+ x 4))) (list 'k (make-add 'x 4)))
+(check-expect (parse '(k x (+ x 4))) (make-func-defn 'k 'x (make-add 'x 4)))
 (check-expect (eval-definition '(k 3) '(k x x)) 3)
 (check-expect (eval-definition '(k 3) '(k x (+ x 4))) 7)
 (check-expect (eval-definition '(* 1 (k 3)) '(k x (+ x 4))) 7)
 (check-expect (eval-definition '(* 5 (k 3)) '(k x (+ x 4))) 35)
+(check-expect (eval-definition '(* 5 (k (+ 1 2))) '(k x (+ x 4))) 35)
