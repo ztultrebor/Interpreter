@@ -192,28 +192,36 @@
     (eval-expression (assq be lassoc))))
 
 
-(define (eval-definition expr func)
-  ; S-Expr S-Expr -> [Maybe Number]
-  ; takes an umparsed expression of or containing a function along with
-  ; the unparsed expression of that function itself and returns the result
-  (local (
-          (define ex (parse expr))
-          (define fn (parse func))
-          (define (eval be repl)
-            ; BSL-Expr BSL-Expr ->  Number
-            ; evaluates the BSL-expression, returning a number
-            (match be
-              [(? number?) be]
-              [(? symbol?) repl]
-              [(add x y) (+ (eval x repl) (eval y repl))]
-              [(multiply x y) (* (eval x repl) (eval y repl))]
-              [(? func-app?)
-               (if (symbol=? (func-defn-name repl) (func-app-name be))
-                   (eval (func-defn-body repl)
-                         (eval (func-app-arg be) repl))
-                   (error "need a proper definition for this function"))])))
-    ; - IN -
-    (eval ex fn)))
+(define (eval-definition be repl)
+  ; BSL-Expr BSL-Expr -> [Maybe Number]
+  ; takes an expression of, or containing, a function along with
+  ; the expression of that function itself and returns the result
+  (match be
+    [(multiply (? number?) (? number?)) (* (multiply-x be) (multiply-y be))]
+    [(add (? number?) (? number?)) (+ (add-x be) (add-y be))]
+    [(multiply x y) (if (or (symbol? x) (symbol? y))
+                        be
+                        (eval-definition
+                                    (make-multiply
+                                     (eval-definition x repl)
+                                       (eval-definition y repl))
+                                    repl))]
+    [(add x y) (if (or (symbol? x) (symbol? y))
+                        be
+                        (eval-definition
+                                    (make-add
+                                     (eval-definition x repl)
+                                       (eval-definition y repl))
+                                    repl))]
+    [(? func-app?)
+     (if (symbol=? (func-defn-name repl) (func-app-name be))
+         (eval-definition
+          (subst (func-defn-body repl)
+                 (func-defn-param repl)
+                 (func-app-arg be))
+          repl)
+         (error "need a proper definition for this function"))]
+    [stuff stuff]))
 
 
 
@@ -253,11 +261,18 @@
 (check-error (eval-var-lookup symbi '((x 7)))
              "there's undefined variables in here")
 (check-expect (parse '((k x) (+ x 4))) (make-func-defn 'k 'x (make-add 'x 4)))
-(check-expect (eval-definition '(k 3) '((k x) x)) 3)
-(check-expect (eval-definition '(k 3) '((k x) (+ x 4))) 7)
-(check-expect (eval-definition '(* 1 (k 3)) '((k x) (+ x 4))) 7)
-(check-expect (eval-definition '(* 5 (k 3)) '((k x) (+ x 4))) 35)
-(check-expect (eval-definition '(* 5 (k (+ 1 2))) '((k x) (+ x 4))) 35)
-(check-error (eval-definition '(* 5 (k (+ 1 2))) '((p x) (+ x 4)))
+(check-expect (eval-definition (parse '(k 3)) (parse '((k x) x))) 3)
+(check-expect (eval-definition (parse '(k 3)) (parse '((k x) (+ x 4)))) 7)
+(check-expect (eval-definition (parse '(* 1 (k 3))) (parse '((k x) (+ x 4)))) 7)
+(check-expect (eval-definition (parse '(* 5 (k 3)))
+                               (parse '((k x) (+ x 4)))) 35)
+(check-expect (eval-definition (parse '(* 5 (k (+ 1 2))))
+                               (parse '((k x) (+ x 4)))) 35)
+(check-error (eval-definition (parse '(* 5 (k (+ 1 2))))
+                              (parse '((p x) (+ x 4))))
              "need a proper definition for this function")
-(check-expect (eval-definition '(* 5 (k (+ 1 2))) '((k x) (+ y 4))) 35) ; ?????
+#; (check-expect (eval-definition (parse '(* 5 (k (+ 1 2))))
+                               (parse '((k x) (+ y 4))))
+              (make-multiply 5 (make-add 'y 4)))
+(check-expect (eval-definition (parse '(* (+ 7 3) (+ 33 -8)))
+                               (parse '((k x) x))) 250)
