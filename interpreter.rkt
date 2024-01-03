@@ -33,15 +33,21 @@
 ; it represents the logical "not" of a booleans
 
 
+(define-struct function [name arg])
+; a Function is a [BSL-Expr Number]
+; it represents a one-parameter function of otherwise arbitrary complexity
+#;
+(define (fn-on-function f)
+  (... (fn-on-bslexpr (function-name f))
+       ... (fn-on-number (function-arg f))))
+
+
 ; a BSL-Expr is one of
 ;     - Number
-;     - Boolean
 ;     - Symbol
 ;     - (make-add [BSL-Expr] [BSL-Expr])
 ;     - (make-multiply [BSL-Expr] [BSL-Expr])
-;     - (make-and [BSL-Bool-Expr] [BSL-Bool-Expr])
-;     - (make-or [BSL-Bool-Expr] [BSL-Bool-Expr])
-;     - (make-not [BSL-Bool-Expr])
+;     - (make-function [Symbol Symbol BSL-Expr])
 #;
 (define (fn-on-bslexpr be)
   (match be
@@ -50,13 +56,28 @@
     [(? symbol?) be]
     [(add x y) (+ (fn-on-bslexpr x) (fn-on-bslexpr y))]
     [(multiply x y) (* (fn-on-bslexpr x) (fn-on-bslexpr y))]
-    [(nd x y) (and (fn-on-bslexpr x) (fn-on-bslexpr y))]
-    [(r x y) (or (fn-on-bslexpr x) (fn-on-bslexpr y))]
-    [(nt x) (not (fn-on-bslexpr x))]))
+    [(function name body) (fn-on-function be)]))
+
+
+; a BSL-Bool-Expr is one of
+;     - Boolean
+;     - Symbol
+;     - (make-and [BSL-Bool-Expr] [BSL-Bool-Expr])
+;     - (make-or [BSL-Bool-Expr] [BSL-Bool-Expr])
+;     - (make-not [BSL-Bool-Expr])
+;     - (make-function [Symbol Symbol BSL-Bool-Expr])
+#;
+(define (fn-on-bslboolexpr be)
+  (match bbe
+    [(? boolean?) bbe]
+    [(? symbol?) bbe]
+    [(nd x y) (and (fn-on-bslboolexpr x) (fn-on-bslboolexpr y))]
+    [(r x y) (or (fn-on-bslboolexpr x) (fn-on-bslboolexpr y))]
+    [(nt x) (not (fn-on-bslboolexpr x))]))
 
 
 ; an Association is a (list Symbol Number)
-; ir represents a variables along with an associated numeric value
+; it represents a variables along with an associated numeric value
 #;
 (define (fn-on-association assoc)
   (... (fn-on-symbol (firstassoc)) ... (fn-on-number (second assoc))))
@@ -78,7 +99,10 @@
     [(list '* x y) (make-multiply (parse x) (parse y))]
     [(list 'and x y) (make-nd (parse x) (parse y))]
     [(list 'or x y) (make-r (parse x) (parse y))]
-    [(list 'not x) (make-nt (parse x))]))
+    [(list 'not x) (make-nt (parse x))]
+    [(list (? symbol?) (? number?)) (make-function (parse (first sexpr))
+                                                   (parse (second sexpr)))]
+    [(list name body) (list name (parse body))]))
 
 
 (define (eval-expression be)
@@ -91,7 +115,7 @@
 
 
 (define (eval-bool-expr bbe)
-  ; BSL-Expr -> Boolean
+  ; BSL-Bool-Expr -> Boolean
   ; converts a BSL expression into a boolean value
   (match bbe
     [(? boolean?) bbe]
@@ -150,13 +174,44 @@
                  ; - IN -
                  (if (ormap in? lassoc) (second (first (filter in? lassoc)))
                      (error "there's undefined variables in here")))]
-              [(add x y)
-               (make-add (eval-var-lookup x lassoc) (eval-var-lookup y lassoc))]
-              [(multiply x y) (make-multiply (eval-var-lookup x lassoc)
-                                             (eval-var-lookup y lassoc))])))
+              [(multiply x y) (make-multiply (assq x lassoc) (assq y lassoc))]
+              [(add x y) (make-add (assq x lassoc) (assq y lassoc))])))
     ; - IN -
     (eval-expression (assq be lassoc))))
 
+
+(define (eval-definition expr func)
+  ; S-Expr S-Expe -> [Maybe Number]
+  ; takes an expression of or containing a function along with
+  ; the expression of that function itself and returns the result
+  (local (
+          (define ex (parse expr))
+          (define fn (parse func))
+
+          (define (eval ex fn)
+            (local (
+                    (define (subst be val)
+                      ; BSL-Expr Number -> BSL-Expr
+                      ; replace all occurrences of the one
+                      ; and only symbol with value
+                      (match be
+                        [(? number?) be]
+                        [(? symbol?) val]
+                        [(add x y) (make-add (subst x val) (subst y val))]
+                        [(multiply x y)
+                         (make-multiply (subst x val)(subst y val))])))
+              ; BSL-Expr BSL-Expr ->  Number
+              ; evaluates the BSL-expression, returning a number
+              (match ex
+                [(? number?) ex]
+                [(add x y) (+ (eval x fn) (eval y fn))]
+                [(multiply x y) (* (eval x fn) (eval y fn))]
+                [(? function?)
+                 (eval (subst (second fn) (function-arg ex)) fn)]))))
+          ; - IN -
+          (eval ex fn)))
+
+  
 
 ; ============================
 ; checks
@@ -169,7 +224,6 @@
 (define buant (make-r (make-nt (make-nd #t #t))
                       (make-nt (make-nd #f #t))))
 (define symbi (make-multiply (make-add 'x 3) (make-add 33 'y)))
-
 (check-expect (eval-expression test1) 10)
 (check-expect (eval-expression test2) 250)
 (check-expect (eval-expression quant) 250)
@@ -194,3 +248,9 @@
 (check-expect (eval-var-lookup symbi '((x 7) (y -8))) 250)
 (check-error (eval-var-lookup symbi '((x 7)))
              "there's undefined variables in here")
+(check-expect (parse '(k (+ x 4))) (list 'k (make-add 'x 4)))
+(check-expect (eval-definition '(k 4) '(k x)) 4)
+(check-expect (eval-definition '(k 4) '(k (+ x 1))) 5)
+(check-expect (eval-definition '(k 4) '(k (+ x 4))) 8)
+(check-expect (eval-definition '(* 1 (k 4)) '(k (+ x 4))) 8)
+(check-expect (eval-definition '(* 5 (k 4)) '(k (+ x 4))) 40)
