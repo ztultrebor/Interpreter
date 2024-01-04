@@ -323,6 +323,8 @@
               (list (+ (+ 3 1) (+ 3 (* 2 1))) (+ (+ 3 17) (+ 3 (* 2 17)))
                     (+ (+ 3 172) (+ 3 (* 2 172)))
                     (+ (+ 3 1729) (+ 3 (* 2 1729)))))
+(check-error (eval-function* (parse '(k 8)) definitions)
+             "need proper definition for this function")
 
 ; =============================
 ; actions
