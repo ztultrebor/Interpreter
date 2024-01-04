@@ -87,18 +87,23 @@
 
 
 ; an Association is a (list Symbol Number)
-; it represents a variables along with an associated numeric value
+; it represents a constant name along with an associated numeric value
 #;
 (define (fn-on-association assoc)
   (... (fn-on-symbol (firstassoc)) ... (fn-on-number (second assoc))))
 
 
-; a [ListOf FunctionDefinition] is one of:
+; a [ListOf Definition] is one of:
 ;     - '()
-;     - (cons FunctionDefinition [ListOf FunctionDefinition])
+;     - (cons FunctionDefinition [ListOf Definition])
+;     - (cons Association [ListOf Definition])
 #;
-(define (fn-on-lofd lofd)
-  (fn-on-func-def (first lofd) ... (fn-on-lofd (rrest lofd))))
+(define (fn-on-lod lod)
+  (cons
+   (cond
+     [(func-defn? (first lod)) (fn-on-func-defn (first lod))]
+     [else (fn-on-association (first lod))])
+   (fn-on-lod (rest lofd))))
 
 
 ; ===============================
@@ -121,7 +126,8 @@
     [(list (? symbol?) expr) (make-func-app (parse (first sexpr))
                                             (parse expr))]
     [(list 'define (list f-nm f-arg) expr)
-     (make-func-defn f-nm f-arg  (parse expr))]))
+     (make-func-defn f-nm f-arg (parse expr))]
+    [(list 'define var-nm val) (list var-nm (parse val))]))
 
 
 (define (eval-expression be)
@@ -178,26 +184,27 @@
            (rest lassoc))]))
 
 
-(define (eval-var-lookup be lassoc)
+(define (eval-var-lookup be lofd)
   ; BSL-Expr [ListOf Association] -> [Maybe Number]
   ; traverse the BST-Expression, making substitutions from the
   ; list of associations each time a variable is encountered
   (local (
-          (define (assq be lassoc)
+          (define (eval be lofd)
             (match be
-              [(? number?) be]
+              [(multiply x y) (make-multiply (eval x lofd) (eval y lofd))]
+              [(add x y) (make-add (eval x lofd) (eval y lofd))]
               [(? symbol?)
                (local (
-                       (define (in? assoc)
-                         ; Association -> Boolean
-                         (symbol=? (first assoc) be)))
+                       (define got-const (lookup-con-def be lofd)))
                  ; - IN -
-                 (if (ormap in? lassoc) (second (first (filter in? lassoc)))
-                     (error "there's undefined variables in here")))]
-              [(multiply x y) (make-multiply (assq x lassoc) (assq y lassoc))]
-              [(add x y) (make-add (assq x lassoc) (assq y lassoc))])))
+                 (match got-const
+                   [(? false?)
+                    (error "need proper definition for this variable")]
+                   [(list c-nm c-val)
+                    (eval (subst be c-nm c-val) lofd)]))]
+              [stuff stuff])))
     ; - IN -
-    (eval-expression (assq be lassoc))))
+    (eval-expression (eval be lofd))))
 
 
 (define (eval-function be fd)
@@ -223,37 +230,58 @@
     [stuff stuff]))
 
 
-(define (lookup-def sym lofd)
-  ; Symbol [ListOf FunctionDefinition] -> [Maybe FunctionDefinition]
+(define (lookup-fun-def sym lod)
+  ; Symbol [ListOf Definition] -> [Maybe FunctionDefinition]
+  ; filters a list of definitions looking for functions and then
+  ; looks for matches to the symbol provided
   (local (
-          (define function
-            (filter (lambda (df) (symbol=? sym (func-defn-name df))) lofd)))
+          (define defn
+            (filter (lambda (df) (symbol=? sym (func-defn-name df)))
+                    (filter func-defn? lod))))
     ; - IN -
-    (match function
+    (match defn
       [(? empty?) #f]
-      [f-in-list (first f-in-list)])))
+      [df-in-list (first df-in-list)])))
+
+
+(define (lookup-con-def sym lod)
+  ; Symbol [ListOf Definition] -> [Maybe Association]
+  ; filters a list of definitions looking for constants and then
+  ; looks for matches to the symbol provided
+  (local (
+          (define defn
+            (filter (lambda (df) (symbol=? sym (first df)))
+                    (filter list? lod))))
+    ; - IN -
+    (match defn
+      [(? empty?) #f]
+      [df-in-list (first df-in-list)])))
 
 
 (define (eval-function* be lofd)
   ; BSL-Expr [ListOf FunctionDefinition]
-  ; traverses a the list, replacing function applications in the
-  ; expression with the bodies as provided in the list
-  (match be
-    [(multiply x y) (make-multiply
-                     (eval-function* x lofd)
-                     (eval-function* y lofd))]
-    [(add x y) (make-add
-                (eval-function* x lofd)
-                (eval-function* y lofd))]
-    [(func-app f-nm f-arg)
-     (local (
-             (define got-func (lookup-def f-nm lofd)))
-       ; - IN -
-       (match got-func
-         [(? false?) (error "need proper definition for this function")]
-         [(func-defn g-nm g-prm g-bd)
-          (eval-function* (subst g-bd g-prm f-arg) lofd)]))]
-    [stuff stuff]))
+  ; traverses a list, replacing function applications in the
+  ; expression with the function bodies as provided in the list
+  (local (
+          (define (eval be lofd)
+            (match be
+              [(multiply x y) (make-multiply
+                               (eval x lofd)
+                               (eval y lofd))]
+              [(add x y) (make-add
+                          (eval x lofd)
+                          (eval y lofd))]
+              [(func-app f-nm f-arg)
+               (local (
+                       (define got-func (lookup-fun-def f-nm lofd)))
+                 ; - IN -
+                 (match got-func
+                   [(? false?) (error "need proper definition for this function")]
+                   [(func-defn g-nm g-prm g-bd)
+                    (eval (subst g-bd g-prm f-arg) lofd)]))]
+              [stuff stuff])))
+    ; - IN -
+    (eval-var-lookup (eval be lofd) lofd)))
 
 
 ; ============================
@@ -289,8 +317,9 @@
 (check-error (eval-variable* symbi '((x 7)))
              "there's undefined variables in here")
 (check-expect (eval-var-lookup symbi '((x 7) (y -8))) 250)
+(check-expect (eval-var-lookup (make-add 'x 3) '((x 7) (y -8))) 10)
 (check-error (eval-var-lookup symbi '((x 7)))
-             "there's undefined variables in here")
+             "need proper definition for this variable")
 (check-expect (parse '(define (k x) (+ x 4)))
               (make-func-defn 'k 'x (make-add 'x 4)))
 (check-expect (eval-function (parse '(k 3)) (parse '( define (k x) x))) 3)
@@ -319,7 +348,7 @@
                                  (define (h v) (+ (f v) (g v))))))
 (define interactions (map parse '((h 1) (h 17) (h 172) (h 1729))))
 (check-expect (map (lambda (fd) (eval-expression
-                   (eval-function* fd definitions))) interactions)
+                                 (eval-function* fd definitions))) interactions)
               (list (+ (+ 3 1) (+ 3 (* 2 1))) (+ (+ 3 17) (+ 3 (* 2 17)))
                     (+ (+ 3 172) (+ 3 (* 2 172)))
                     (+ (+ 3 1729) (+ 3 (* 2 1729)))))
@@ -329,3 +358,11 @@
 ; =============================
 ; actions
 
+(define definitions2
+  (map parse '((define close-to-pi 3.14)
+               (define (area-of-circle r) (* close-to-pi (* r r)))
+               (define (volume-of-10-cylinder r) (* 10 (area-of-circle r))))))
+(define funxions (filter func-defn? definitions2))
+(define variables (filter list? definitions2))
+
+(eval-function* (parse '(volume-of-10-cylinder 7)) definitions2)
