@@ -248,6 +248,16 @@
     (eval-expression var-eval)))
 
 
+(define (interpreter sexpr definitions)
+  ; S-Expression S-Expression -> Number
+  ; takes raw s-expression input and evaluates the expression
+  (local (
+          (define be (parse sexpr))
+          (define lod (map parse definitions)))
+    ; - IN -
+    (eval-all be lod)))
+
+
 ; ============================
 ; checks
 (define test1 (make-add 7 3))
@@ -318,11 +328,12 @@
 (check-error (eval-function* (parse '(k 8)) definitions)
              "need proper definition for this function")
 (define definitions2
-  (map parse '((define close-to-pi 3.14)
-               (define (area-of-circle r) (* close-to-pi (* r r)))
-               (define (volume-of-10-cylinder r) (* 10 (area-of-circle r))))))
-(check-expect (eval-all (parse '(volume-of-10-cylinder 7)) definitions2) 1538.6)
-
+  '((define close-to-pi 3.14)
+    (define (area-of-circle r) (* close-to-pi (* r r)))
+    (define (volume-of-10-cylinder r) (* 10 (area-of-circle r)))))
+(check-expect (eval-all (parse '(volume-of-10-cylinder 7))
+                        (map parse definitions2)) 1538.6)
+(check-expect (interpreter '(volume-of-10-cylinder 7) definitions2) 1538.6)
 
 ; =============================
 ; actions
