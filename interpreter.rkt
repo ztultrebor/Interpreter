@@ -171,27 +171,14 @@
     [(multiply x y) (and (numeric? x) (numeric? y))]))
 
 
-(define (eval-variable* be lassoc)
-  ; BSL-Expr [ListOf Association] -> [Maybe Number]
-  ; traverse the list of associations, making substitutions in
-  ; the BST-Expression for each variable one by one
-  (cond
-    [(empty? lassoc)
-     (if (numeric? be) (eval-expression be)
-         (error "there's undefined variables in here"))]
-    [else (eval-variable*
-           (subst be (first (first lassoc)) (second (first lassoc)))
-           (rest lassoc))]))
-
-
-(define (eval-var-lookup be lofd)
+(define (eval-variable* be lofd)
   ; BSL-Expr [ListOf Association] -> [Maybe Number]
   ; traverse the BST-Expression, making substitutions from the
   ; list of associations each time a variable is encountered
   (match be
     [(multiply x y) (make-multiply
-                     (eval-var-lookup x lofd) (eval-var-lookup y lofd))]
-    [(add x y) (make-add (eval-var-lookup x lofd) (eval-var-lookup y lofd))]
+                     (eval-variable* x lofd) (eval-variable* y lofd))]
+    [(add x y) (make-add (eval-variable* x lofd) (eval-variable* y lofd))]
     [(? symbol?)
      (local (
              (define got-const (lookup-con-def be lofd)))
@@ -200,30 +187,7 @@
          [(? false?)
           (error "need proper definition for this variable")]
          [(list c-nm c-val)
-          (eval-var-lookup (subst be c-nm c-val) lofd)]))]
-    [stuff stuff]))
-
-
-(define (eval-function be fd)
-  ; BSL-Expr FunctionDefinition -> BSL-Expr
-  ; takes an expression of, or containing, a function application along with
-  ; the definition of that function and returns the the expression with the
-  ; function application replaced by its unevaluated body
-  (match be
-    [(multiply x y) (make-multiply
-                     (eval-function x fd)
-                     (eval-function y fd))]
-    [(add x y) (make-add
-                (eval-function x fd)
-                (eval-function y fd))]
-    [(? func-app?)
-     (if (symbol=? (func-defn-name fd) (func-app-name be))
-         (eval-function
-          (subst (func-defn-body fd)
-                 (func-defn-param fd)
-                 (func-app-arg be))
-          fd)
-         (error "need a proper definition for this function"))]
+          (eval-variable* (subst be c-nm c-val) lofd)]))]
     [stuff stuff]))
 
 
@@ -279,7 +243,7 @@
   ; evaluates an expression that contains functions and variables
   (local (
           (define func-eval (eval-function* be lod))
-          (define var-eval (eval-var-lookup func-eval lod)))
+          (define var-eval (eval-variable* func-eval lod)))
     ; - IN -
     (eval-expression var-eval)))
 
@@ -313,37 +277,34 @@
 (check-expect (numeric? symbi) #f)
 (check-expect (numeric? (subst symbi 'x 7)) #f)
 (check-expect (numeric? (subst (subst symbi 'x 7) 'y -8)) #t)
-(check-expect (eval-variable* symbi '((x 7) (y -8))) 250)
-(check-error (eval-variable* symbi '((x 7)))
-             "there's undefined variables in here")
-(check-expect (eval-var-lookup symbi '((x 7) (y -8)))
+(check-expect (eval-variable* symbi '((x 7) (y -8)))
               (make-multiply (make-add 7 3) (make-add 33 -8)))
-(check-expect (eval-var-lookup (make-add 'x 3) '((x 7) (y -8)))
+(check-expect (eval-variable* (make-add 'x 3) '((x 7) (y -8)))
               (make-add 7 3))
-(check-error (eval-var-lookup symbi '((x 7)))
+(check-error (eval-variable* symbi '((x 7)))
              "need proper definition for this variable")
 (check-expect (parse '(define (k x) (+ x 4)))
               (make-func-defn 'k 'x (make-add 'x 4)))
-(check-expect (eval-function (parse '(k 3)) (parse '( define (k x) x))) 3)
-(check-expect (eval-function (parse '(k 3))
-                             (parse '(define (k x) (+ x 4)))) (make-add 3 4))
-(check-expect (eval-function (parse '(* 1 (k 3)))
-                             (parse '(define (k x) (+ x 4))))
+(check-expect (eval-function* (parse '(k 3)) (map parse '((define (k x) x)))) 3)
+(check-expect (eval-function* (parse '(k 3))
+                              (map parse '((define (k x) (+ x 4))))) (make-add 3 4))
+(check-expect (eval-function* (parse '(* 1 (k 3)))
+                              (map parse '((define (k x) (+ x 4)))))
               (make-multiply 1 (make-add 3 4)))
-(check-expect (eval-function (parse '(* 5 (k 3)))
-                             (parse '(define (k x) (+ x 4))))
+(check-expect (eval-function* (parse '(* 5 (k 3)))
+                              (map parse '((define (k x) (+ x 4)))))
               (make-multiply 5 (make-add 3 4)))
-(check-expect (eval-function (parse '(* 5 (k (+ 1 2))))
-                             (parse '(define (k x) (+ x 4))))
+(check-expect (eval-function* (parse '(* 5 (k (+ 1 2))))
+                              (map parse '((define (k x) (+ x 4)))))
               (make-multiply 5 (make-add (make-add 1 2) 4)))
-(check-error (eval-function (parse '(* 5 (k (+ 1 2))))
-                            (parse '(define (p x) (+ x 4))))
-             "need a proper definition for this function")
-(check-expect (eval-function (parse '(* 5 (k (+ 1 2))))
-                             (parse '(define (k x) (+ y 4))))
+(check-error (eval-function* (parse '(* 5 (k (+ 1 2))))
+                             (map parse '((define (p x) (+ x 4)))))
+             "need proper definition for this function")
+(check-expect (eval-function* (parse '(* 5 (k (+ 1 2))))
+                              (map parse '((define (k x) (+ y 4)))))
               (make-multiply 5 (make-add 'y 4)))
-(check-expect (eval-function (parse '(* (+ 7 3) (+ 33 -8)))
-                             (parse '(define (k x) x)))
+(check-expect (eval-function* (parse '(* (+ 7 3) (+ 33 -8)))
+                              (parse '(define (k x) x)))
               (make-multiply (make-add 7 3) (make-add 33 -8)))
 (define definitions (map parse '((define (f x) (+ 3 x))
                                  (define (g y) (f (* 2 y)))
